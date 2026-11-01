@@ -1,5 +1,7 @@
 """Gradio front end."""
+import json
 import tempfile
+from pathlib import Path
 
 from .align import align
 from .clips import problem_clips
@@ -27,6 +29,11 @@ def _estimate_text(bpm, block):
         return ""
 
 
+def _durations_html(lengths):
+    """Hidden element carrying each audio player's exact length in s, for ms_time.js."""
+    return f"<div id='audio-durations' data-durations='{json.dumps(lengths)}' style='display:none'></div>"
+
+
 def ui():
     import gradio as gr
 
@@ -49,6 +56,7 @@ def ui():
                      f"{len(ranges)} problem ranges, {len(t['mistakes'])} single wrong hits")
         clips = problem_clips(cover_file, ref_file, t, ranges, tempfile.mkdtemp(prefix="problem_clips_"),
                               original_level=0.5 if with_original else 0.0)
+        lengths = {f"clip-{i}": probe_duration(path) for i, path in enumerate(clips, 1)}
         players = [gr.Audio(value=path, visible=True,
                             label=f"#{i} · song {mmss(q['song_from'])}–{mmss(q['song_to'])} (bars {q['first']}–"
                                   f"{q['last']}) · {', '.join(q['tags'])}")
@@ -69,8 +77,12 @@ def ui():
             raise gr.Error(str(exc)) from exc
         steps.append(f"10. Mixed the cover onto the original song and onto the drumless track at {r['start']:.3f} s "
                      f"(level {cover_gain:.2f}), keeping {pad:g} s before and after it")
-        return (report(r), "\n".join(steps), plot(r), overlay(ref, cover, r["start"]), on_original, on_drumless,
-                ref_mp3, cover_mp3, timing_report(t), problems_plot(t, ranges), *players)
+        preview = overlay(ref, cover, r["start"])
+        lengths.update({"preview": len(preview[1]) / preview[0], "on-original": probe_duration(on_original),
+                        "on-drumless": probe_duration(on_drumless), "ref-mp3": probe_duration(ref_mp3),
+                        "cover-mp3": probe_duration(cover_mp3)})
+        return (report(r), "\n".join(steps), plot(r), preview, on_original, on_drumless,
+                ref_mp3, cover_mp3, timing_report(t), problems_plot(t, ranges), *players, _durations_html(lengths))
 
     with gr.Blocks(title="Drum Cover Aligner") as app:
         gr.Markdown(
@@ -97,26 +109,29 @@ def ui():
         result = gr.Markdown()
         steps = gr.Textbox(label="Steps", lines=8)
         fig = gr.Plot(label="Alignment")
-        audio = gr.Audio(label="Listen: reference (left) + cover (right) at the found offset")
+        audio = gr.Audio(label="Listen: reference (left) + cover (right) at the found offset", elem_id="preview")
         with gr.Row():
-            on_original = gr.Audio(label="Your cover + the original song", type="filepath")
-            on_drumless = gr.Audio(label="Your cover + the drumless track", type="filepath")
+            on_original = gr.Audio(label="Your cover + the original song", type="filepath", elem_id="on-original")
+            on_drumless = gr.Audio(label="Your cover + the drumless track", type="filepath", elem_id="on-drumless")
         with gr.Row():
-            ref_mp3 = gr.Audio(label="Separated drums, cropped to the cover (mp3)", type="filepath")
-            cover_mp3 = gr.Audio(label="Drum cover, aligned and cropped (mp3)", type="filepath")
+            ref_mp3 = gr.Audio(label="Separated drums, cropped to the cover (mp3)", type="filepath", elem_id="ref-mp3")
+            cover_mp3 = gr.Audio(label="Drum cover, aligned and cropped (mp3)", type="filepath", elem_id="cover-mp3")
         timing = gr.Markdown()
         problems_fig = gr.Plot(label="Error rate over the song: the numbered boxes are the worst ranges in the report")
         gr.Markdown("### Listen to the problem parts\nYour take with a click at the song's BPM, from a bar before "
                     "each range to a bar after it. The click is on the original's beats: if you hear yourself "
                     "behind it you're late, ahead of it you're early.")
         with_original = gr.Checkbox(False, label="Also play the original drums quietly in the clips")
-        players = [gr.Audio(type="filepath", visible=False) for _ in range(TOP)]
+        players = [gr.Audio(type="filepath", visible=False, elem_id=f"clip-{i}") for i in range(1, TOP + 1)]
+        durations = gr.HTML(_durations_html({}))
 
         bpm.change(_estimate_text, [bpm, block], est)
         block.change(_estimate_text, [bpm, block], est)
         go.click(
             run,
             [cover_file, song_file, bpm, block, buffer, radius, match_sec, cover_gain, pad, with_original],
-            [result, steps, fig, audio, on_original, on_drumless, ref_mp3, cover_mp3, timing, problems_fig, *players],
+            [result, steps, fig, audio, on_original, on_drumless, ref_mp3, cover_mp3, timing, problems_fig, *players,
+             durations],
         )
-    app.launch(inbrowser=True)
+    ms_time = (Path(__file__).with_name("ms_time.js")).read_text()
+    app.launch(inbrowser=True, head=f"<script>{ms_time}</script>")
