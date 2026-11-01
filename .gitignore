@@ -1,0 +1,12 @@
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.env
+.env.*
+.DS_Store
+.ipynb_checkpoints/
+separated/
+*.mp3
+*.wav
+*.flac
