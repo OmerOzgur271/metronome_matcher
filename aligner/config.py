@@ -1,6 +1,8 @@
 """Shared constants for analysis and alignment."""
 
 SR = 22050
+# Kick 30-150 Hz spans both a sampled kick (MT Power Drum Kit 2: 30-60 Hz) and a recorded one (60-100 Hz).
+# Narrower bands (kick to 120, snare body only, cymbals from 6-8 kHz) paired fewer hits on a real cover.
 BANDS = [("Kick", 30, 150), ("Snare", 150, 4000), ("Cymbal", 4000, 11025)]
 COARSE = (128, 1024)   # hop, window  (~5.8 ms frames)
 FINE = (32, 512)       # hop, window  (~1.45 ms frames)
