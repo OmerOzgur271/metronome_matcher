@@ -92,8 +92,29 @@ def test_separates_only_the_span_and_keeps_song_time():
         assert len(_separate_with_fake_demucs(song, out, span=(2, 9))) == 1  # outside: separated again
 
 
+def test_stems_demucs_made_from_an_mp3_are_moved_onto_the_song_time():
+    from aligner.audio_io import probe_start
+    with tempfile.TemporaryDirectory() as tmp:
+        x = np.zeros(int(6 * RATE), np.float32)
+        x[int(2 * RATE):int(2 * RATE) + 200] = 0.9            # a hit at 2 s
+        song = Path(tmp) / "gg.mp3"
+        _write(song, x)
+        delay = probe_start(song)
+        assert delay > 0.01, delay                             # mp3s start with encoder delay
+        drums, drumless = sep.stem_paths(song, Path(tmp) / "separated")
+        drums.parent.mkdir(parents=True)
+        shifted = np.r_[np.zeros(round(delay * RATE), np.float32), x]  # how demucs leaves it
+        _write(drums, shifted)
+        _write(drumless, shifted)
+        assert not _separate_with_fake_demucs(song, Path(tmp) / "separated", span=(1, 3))
+        y = decode(drums, RATE)
+        song_y = decode(song, RATE)
+        assert abs(np.argmax(np.abs(y)) - np.argmax(np.abs(song_y))) <= 2  # same sample as the song
+
+
 if __name__ == "__main__":
     test_reuses_stems_even_for_a_fresh_copy_of_the_song()
     test_remakes_stems_that_do_not_fit_the_song()
     test_separates_only_the_span_and_keeps_song_time()
+    test_stems_demucs_made_from_an_mp3_are_moved_onto_the_song_time()
     print("ok")

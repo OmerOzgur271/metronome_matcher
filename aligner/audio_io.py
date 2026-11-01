@@ -54,3 +54,14 @@ def probe_duration(path: str) -> float:
         return float(proc.stdout.strip())
     except ValueError:
         raise RuntimeError(f"Could not read the length of {path}: {proc.stderr.strip() or 'no duration'}") from None
+
+
+def probe_start(path: str) -> float:
+    """Start time of the first audio stream: an mp3's encoder delay, which ffmpeg skips when decoding."""
+    proc = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=start_time",
+         "-of", "csv=p=0", str(path)], capture_output=True, text=True)
+    try:
+        return max(0.0, float(proc.stdout.strip()))
+    except ValueError:
+        return 0.0
