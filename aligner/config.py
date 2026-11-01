@@ -14,4 +14,7 @@ MIX_PAD = 10.0         # s of song the final mix keeps before and after the cove
 MISTAKE_MS = 20        # a hit this far off its surroundings is a mistake; a section this far off is drifting
 STABLE_BANDS = ("Kick", "Cymbal")  # follow tempo drift with these; the snare band also picks up fills/toms
 DRIFT_WINDOW = 2.4     # s, local drift = median hit error within ± this
-WEAK_HIT = 0.4         # onsets weaker than this × the band's typical hit are usually another drum leaking in
+WEAK_HIT = 0.4         # onsets weaker than this × the band's typical hit are usually another drum leaking in# Source separation (demucs): the song is split into drums + everything else
+DEMUCS_MODEL = "htdemucs_ft"
+DEMUCS_SHIFTS = 7      # random time shifts averaged; more = cleaner and slower
+DEMUCS_OVERLAP = 0.75

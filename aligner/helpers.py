@@ -41,4 +41,5 @@ def local_peaks(curve):
 
 def clock_time(t):
     """Seconds as '0:12.345, 12 s 345 ms'."""
-    return f"{int(t // 60)}:{t % 60:06.3f}, {int(t)} s {round((t % 1) * 1000)} ms"
+    ms = round(t * 1000)
+    return f"{ms // 60000}:{ms % 60000 / 1000:06.3f}, {ms // 1000} s {ms % 1000} ms"
