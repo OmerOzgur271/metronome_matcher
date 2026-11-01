@@ -1,8 +1,9 @@
 """Find where the drum cover starts inside the extracted drums."""
 import numpy as np
 
-from .config import BANDS, COARSE, FINE, MAX_CANDIDATES, SAME_PEAK, SEARCH_RADIUS, SR, TOL
-from .features import envelopes, match, onsets
+from .config import (ANCHOR_SEC, ANCHOR_WINDOW, BANDS, COARSE, FINE, MAX_CANDIDATES, SAME_PEAK, SEARCH_RADIUS,
+                     SR, TOL, WEAK_HIT)
+from .features import envelopes, local_onsets, long_envelopes, match, onsets
 from .helpers import block_start, local_peaks, ncc, ncc_bands, parabolic_offset
 
 
@@ -130,6 +131,51 @@ def _confidence(best, margin):
     return round(100 * quality * (0.4 + 0.6 * parts["uniqueness"])), parts
 
 
+def _opening_hits(x, start, n):
+    """Clear onsets per band in x[start:start + n], as song times."""
+    hop, win = FINE
+    out = []
+    for e in long_envelopes(x, start, n, hop, win):
+        times, strength = local_onsets(e, hop / SR, start / SR, min_gap=0.06)
+        out.append(times[strength >= WEAK_HIT])
+    return out
+
+
+def _anchor(ref, cover, T):
+    """Fine-tune T so the cover's opening hits land on the original's.
+
+    The whole cover decides the bar; a player's timing wanders over a take, so its average can sit
+    a little off the opening. Within ± ANCHOR_WINDOW, pick the shift that pairs the most of the
+    first ANCHOR_SEC s of hits (from the cover's first hit), then centre it on their median error.
+    Returns (T, first hit in the cover in s, paired, opening hits).
+    """
+    cov = _opening_hits(cover, 0, len(cover))
+    first = min((c[0] for c in cov if len(c)), default=0.0)
+    cov = [c[c <= first + ANCHOR_SEC] for c in cov]
+    n = sum(len(c) for c in cov)
+    if n < 4:
+        return T, first, 0, n
+    lo = round((T + first - ANCHOR_WINDOW - TOL) * SR)
+    ref_on = _opening_hits(ref, max(0, lo), round((ANCHOR_SEC + 2 * (ANCHOR_WINDOW + TOL)) * SR))
+
+    def pairs(shift):
+        out = []
+        for c, r in zip(cov, ref_on):
+            if len(c) and len(r):
+                d = r[None, :] - (c[:, None] + T + shift)
+                j = np.abs(d).argmin(1)
+                e = d[np.arange(len(c)), j]
+                out += list(e[np.abs(e) <= TOL])
+        return out
+
+    shifts = np.arange(-ANCHOR_WINDOW, ANCHOR_WINDOW + 1e-9, 0.001)
+    best = max(shifts, key=lambda s: (len(pairs(s)), -np.mean(np.abs(pairs(s))) if pairs(s) else 0, -abs(s)))
+    errs = pairs(best)
+    if not errs:
+        return T, first, 0, n
+    return T + best + float(np.median(errs)), first, len(errs), n
+
+
 def align(ref, cover, bpm, block, buffer=1.0, radius=SEARCH_RADIUS, match_sec=30.0, log=print):
     est = block_start(bpm, block)
     if est >= len(ref) / SR:
@@ -150,7 +196,10 @@ def align(ref, cover, bpm, block, buffer=1.0, radius=SEARCH_RADIUS, match_sec=30
     log(f"5. Refined to {best['T']:.4f} s; {hits} kick/snare/cymbal hits aligned; {len(cands)} candidate(s) checked")
 
     confidence, parts = _confidence(best, _margin(best, cands, times, curve, peaks))
-    T = best["T"]
-    log(f"6. Start {T:.3f} s | offset {(T - est) * 1000:+.0f} ms | confidence {confidence}/100")
+    T, first, paired, opening = _anchor(ref, cover, best["T"])
+    log(f"6. Fine-tuned on your opening hits ({ANCHOR_SEC:g} s from your first hit at {first:.3f} s): "
+        f"{paired}/{opening} land on the original's, start moved {(T - best['T']) * 1000:+.1f} ms")
+    log(f"7. Start {T:.3f} s | offset {(T - est) * 1000:+.0f} ms | confidence {confidence}/100")
     return dict(estimate=est, start=T, offset_ms=(T - est) * 1000, confidence=confidence, parts=parts,
-                best=best, candidates=cands, curve=(times, curve), cover_f=cover_f, bpm=bpm)
+                best=best, candidates=cands, curve=(times, curve), cover_f=cover_f, bpm=bpm,
+                whole_cover_start=best["T"], first_hit=first, opening=(paired, opening))

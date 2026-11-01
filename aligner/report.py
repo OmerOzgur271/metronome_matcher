@@ -4,6 +4,16 @@ import numpy as np
 from .config import BANDS, FINE, MISTAKE_MS, SR
 from .helpers import clock_time, segment
 from .problems import problems_report
+from .timing import _position
+
+
+def _first_hit(r):
+    first, (paired, opening) = r["first_hit"], r["opening"]
+    bar, beat = _position(r["start"] + first, r["bpm"])
+    return (f"**Your first hit** is {first:.3f} s into your file, so it lands at song {r['start'] + first:.3f} s "
+            f"(bar {bar}, beat {beat:g}).  \n"
+            f"**Fine-tuned on your opening hits:** {paired}/{opening} land on the original's; the whole-cover "
+            f"average was {r['whole_cover_start']:.3f} s ({(r['start'] - r['whole_cover_start']) * 1000:+.1f} ms).  ")
 
 
 def report(r):
@@ -11,6 +21,7 @@ def report(r):
     lines = [
         f"## Start time: **{T:.3f} s**  ({clock_time(T)})",
         f"**Offset from {r['estimate']:.3f} s:** {r['offset_ms']:+.1f} ms  ",
+        _first_hit(r),
         f"**Alignment confidence:** {r['confidence']}/100  "
         f"(correlation {r['parts']['correlation']:.2f} · hits {r['parts']['hits']:.2f} · "
         f"consistency {r['parts']['consistency']:.2f} · uniqueness {r['parts']['uniqueness']:.2f})",

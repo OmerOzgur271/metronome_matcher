@@ -3,14 +3,15 @@ import argparse
 from pathlib import Path
 
 from .align import align
+from .helpers import block_start
 from .clips import problem_clips
-from .audio_io import load
-from .config import MIX_PAD, SEARCH_RADIUS
+from .audio_io import load, probe_duration
+from .config import MIX_PAD, SEARCH_RADIUS, SNIPPET_MARGIN
 from .export import export_aligned
 from .mix import mix
 from .problems import problem_ranges, problems_plot
 from .report import report, timing_report
-from .separate import separate
+from .separate import STEMS_DIR, separate, snippet_span
 from .timing import check_timing
 
 
@@ -31,7 +32,8 @@ def build_parser(description=None):
     p.add_argument("--buffer", type=float, default=1.0)
     p.add_argument("--radius", type=float, default=SEARCH_RADIUS)
     p.add_argument("--match", type=float, default=30.0)
-    p.add_argument("--stems-dir", default="separated", help="where demucs keeps the separated drums and drumless")
+    p.add_argument("--stems-dir", default=str(STEMS_DIR),
+                   help="where demucs keeps the separated drums and drumless (default: separated/ in the project)")
     p.add_argument("--out-dir", default="output", help="where the two final mixes go")
     p.add_argument("--gain", type=float, default=1.0, help="drum cover level in the mixes")
     p.add_argument("--pad", type=float, default=MIX_PAD, help="seconds of song the mixes keep before and after the cover")
@@ -49,7 +51,8 @@ def main(argv=None, description=None):
         from .ui import ui
         ui()
         return
-    drums, drumless = separate(a.song, a.stems_dir)
+    span = snippet_span(block_start(a.bpm, a.block), a.radius, probe_duration(a.cover), margin=max(SNIPPET_MARGIN, a.pad))
+    drums, drumless = separate(a.song, a.stems_dir, span=span)
     ref, cover = load(drums), load(a.cover)
     res = align(ref, cover, a.bpm, a.block, a.buffer, a.radius, a.match)
     print()

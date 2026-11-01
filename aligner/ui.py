@@ -3,14 +3,14 @@ import tempfile
 
 from .align import align
 from .clips import problem_clips
-from .audio_io import load
-from .config import MIX_PAD, SEARCH_RADIUS
+from .audio_io import load, probe_duration
+from .config import MIX_PAD, SEARCH_RADIUS, SNIPPET_MARGIN
 from .export import export_aligned
 from .helpers import block_start
 from .mix import mix
 from .problems import TOP, mmss, problem_ranges, problems_plot
 from .report import overlay, plot, report, timing_report
-from .separate import separate
+from .separate import separate, snippet_span
 from .timing import check_timing
 
 
@@ -34,16 +34,18 @@ def ui():
         if not cover_file or not song_file:
             raise gr.Error("Load both your drum cover and the original song.")
         steps = []
-        gr.Info("Separating the drums from the song with demucs; the first time takes a few minutes.")
+        span = snippet_span(block_start(bpm, int(block)), radius, probe_duration(cover_file),
+                            margin=max(SNIPPET_MARGIN, pad))
+        gr.Info("Separating the drums around your cover with demucs; the first time takes a few minutes.")
         try:
-            ref_file, drumless_file = separate(song_file, log=steps.append)
+            ref_file, drumless_file = separate(song_file, span=span, log=steps.append)
         except RuntimeError as exc:
             raise gr.Error(str(exc)) from exc
         ref, cover = load(ref_file), load(cover_file)
         r = align(ref, cover, bpm, int(block), buffer, radius, match_sec, log=steps.append)
         t = check_timing(ref, cover, r["start"], bpm)
         ranges = problem_ranges(t)
-        steps.append(f"7. Timing check: {sum(h['err'] is not None for h in t['hits'])} hits compared, "
+        steps.append(f"8. Timing check: {sum(h['err'] is not None for h in t['hits'])} hits compared, "
                      f"{len(ranges)} problem ranges, {len(t['mistakes'])} single wrong hits")
         clips = problem_clips(cover_file, ref_file, t, ranges, tempfile.mkdtemp(prefix="problem_clips_"),
                               original_level=0.5 if with_original else 0.0)
@@ -58,14 +60,14 @@ def ui():
                 _temp_file("cover_aligned_", ".mp3"))
         except RuntimeError as exc:
             raise gr.Error(str(exc)) from exc
-        steps.append(f"8. Cropped both to song {begin:.3f}–{begin + length:.3f} s ({length:.1f} s) as aligned mp3s")
+        steps.append(f"9. Cropped both to song {begin:.3f}–{begin + length:.3f} s ({length:.1f} s) as aligned mp3s")
         on_original, on_drumless = _temp_file("cover_on_original_", ".wav"), _temp_file("cover_on_drumless_", ".wav")
         try:
             mix(song_file, cover_file, r["start"], on_original, cover_gain, pad)
             mix(drumless_file, cover_file, r["start"], on_drumless, cover_gain, pad)
         except RuntimeError as exc:
             raise gr.Error(str(exc)) from exc
-        steps.append(f"9. Mixed the cover onto the original song and onto the drumless track at {r['start']:.3f} s "
+        steps.append(f"10. Mixed the cover onto the original song and onto the drumless track at {r['start']:.3f} s "
                      f"(level {cover_gain:.2f}), keeping {pad:g} s before and after it")
         return (report(r), "\n".join(steps), plot(r), overlay(ref, cover, r["start"]), on_original, on_drumless,
                 ref_mp3, cover_mp3, timing_report(t), problems_plot(t, ranges), *players)
