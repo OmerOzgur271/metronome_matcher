@@ -11,6 +11,7 @@ CLI:  python app.py drumcover.mp3 gg.mp3 --bpm 100 --block 21
       python app.py drumcover.mp3 gg.mp3 --crop drums_aligned.mp3 cover_aligned.mp3
       python app.py drumcover.mp3 gg.mp3 --chart errors.png  # error rate over the song
       python app.py drumcover.mp3 gg.mp3 --clips problems/  # problem parts with a click
+      python app.py drumcover.mp3 gg.mp3 --attack-chart attacks.png  # every attack vs the original
 """
 from aligner.cli import main
 

@@ -3,6 +3,7 @@ import argparse
 from pathlib import Path
 
 from .align import align
+from .attacks import analyse_attacks, attack_plot, attack_report
 from .helpers import block_start
 from .clips import problem_clips
 from .audio_io import load, probe_duration
@@ -40,6 +41,7 @@ def build_parser(description=None):
     p.add_argument("--crop", nargs=2, metavar=("EXTRACTED_MP3", "COVER_MP3"),
                    help="write the separated drums and the cover cropped to the stretch they share, aligned, as mp3s")
     p.add_argument("--chart", help="save the error-rate chart (worst time ranges) to this PNG")
+    p.add_argument("--attack-chart", help="save the attack analysis chart to this PNG")
     p.add_argument("--clips", metavar="DIR", help="write each problem range as an mp3 with a click at --bpm here")
     p.add_argument("--with-original", action="store_true", help="also play the original drums quietly in the clips")
     return p
@@ -60,6 +62,12 @@ def main(argv=None, description=None):
     t = check_timing(ref, cover, res["start"], a.bpm)
     print()
     print(timing_report(t))
+    attacks = analyse_attacks(ref, cover, t)
+    print()
+    print(attack_report(attacks, t))
+    if a.attack_chart:
+        attack_plot(attacks, t).savefig(a.attack_chart, dpi=120)
+        print(f"\nAttack chart written to {a.attack_chart}")
     if a.crop:
         _, _, begin, length = export_aligned(drums, a.cover, res["start"], *a.crop)
         print(f"\nCropped to song {begin:.3f}-{begin + length:.3f} s ({length:.1f} s): {a.crop[0]}, {a.crop[1]}")

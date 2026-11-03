@@ -4,6 +4,7 @@ import tempfile
 from pathlib import Path
 
 from .align import align
+from .attacks import analyse_attacks, attack_plot, attack_report, attack_table
 from .clips import problem_clips
 from .audio_io import load, probe_duration
 from .config import MIX_PAD, SEARCH_RADIUS, SNIPPET_MARGIN
@@ -51,6 +52,8 @@ def ui():
         ref, cover = load(ref_file), load(cover_file)
         r = align(ref, cover, bpm, int(block), buffer, radius, match_sec, log=steps.append)
         t = check_timing(ref, cover, r["start"], bpm)
+        attacks = analyse_attacks(ref, cover, t)
+        head, table = attack_table(attacks)
         ranges = problem_ranges(t)
         steps.append(f"8. Timing check: {sum(h['err'] is not None for h in t['hits'])} hits compared, "
                      f"{len(ranges)} problem ranges, {len(t['mistakes'])} single wrong hits")
@@ -82,7 +85,8 @@ def ui():
                         "on-drumless": probe_duration(on_drumless), "ref-mp3": probe_duration(ref_mp3),
                         "cover-mp3": probe_duration(cover_mp3)})
         return (report(r), "\n".join(steps), plot(r), preview, on_original, on_drumless,
-                ref_mp3, cover_mp3, timing_report(t), problems_plot(t, ranges), *players, _durations_html(lengths))
+                ref_mp3, cover_mp3, timing_report(t), problems_plot(t, ranges), *players, _durations_html(lengths),
+                attack_report(attacks, t), attack_plot(attacks, t), gr.Dataframe(value=table, headers=head))
 
     with gr.Blocks(title="Drum Cover Aligner") as app:
         gr.Markdown(
@@ -124,6 +128,10 @@ def ui():
         with_original = gr.Checkbox(False, label="Also play the original drums quietly in the clips")
         players = [gr.Audio(type="filepath", visible=False, elem_id=f"clip-{i}") for i in range(1, TOP + 1)]
         durations = gr.HTML(_durations_html({}))
+        attack_md = gr.Markdown()
+        attack_fig = gr.Plot(label="Attack starts against the original, and attack lengths")
+        attack_df = gr.Dataframe(label="Every attack: yours and the original's (search to filter, click a header to sort)",
+                                 interactive=False, show_search="filter", max_height=520, wrap=False)
 
         bpm.change(_estimate_text, [bpm, block], est)
         block.change(_estimate_text, [bpm, block], est)
@@ -131,7 +139,7 @@ def ui():
             run,
             [cover_file, song_file, bpm, block, buffer, radius, match_sec, cover_gain, pad, with_original],
             [result, steps, fig, audio, on_original, on_drumless, ref_mp3, cover_mp3, timing, problems_fig, *players,
-             durations],
+             durations, attack_md, attack_fig, attack_df],
         )
     ms_time = (Path(__file__).with_name("ms_time.js")).read_text()
     app.launch(inbrowser=True, head=f"<script>{ms_time}</script>")

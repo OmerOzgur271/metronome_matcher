@@ -1,5 +1,6 @@
 """Drum cover aligner package."""
 from .align import align, verify
+from .attacks import analyse_attacks, attack_plot, attack_report, attack_table
 from .audio_io import load, probe_audio, probe_duration
 from .clips import problem_clips
 from .export import export_aligned
@@ -12,4 +13,5 @@ from .timing import check_timing
 
 __all__ = ["align", "verify", "load", "probe_audio", "probe_duration", "block_start", "mix", "overlay", "plot",
            "report", "check_timing", "timing_report", "export_aligned", "problem_ranges", "problems_report",
-           "problems_plot", "problem_clips", "separate"]
+           "problems_plot", "problem_clips", "separate", "analyse_attacks", "attack_report", "attack_plot",
+           "attack_table"]
