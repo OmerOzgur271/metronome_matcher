@@ -65,3 +65,15 @@ def probe_start(path: str) -> float:
         return max(0.0, float(proc.stdout.strip()))
     except ValueError:
         return 0.0
+
+
+def write_wav(x, rate, path):
+    """Write float32 samples, shape (n,) or (n, channels), as a 32-bit float wav."""
+    channels = 1 if x.ndim == 1 else x.shape[1]
+    proc = subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-f", "f32le", "-ar", str(rate), "-ac", str(channels), "-i", "-",
+         "-c:a", "pcm_f32le", str(path)],
+        input=np.ascontiguousarray(x, np.float32).tobytes(), capture_output=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr.decode().strip() or f"ffmpeg failed to write {path}")
+    return str(path)

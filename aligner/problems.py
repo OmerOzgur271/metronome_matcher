@@ -25,7 +25,6 @@ MIN_BAND_HITS = 4  # a drum needs this many hits in a window for its own share t
 LOOSE_MS = 12      # hits spread more than this around your own pulse = loose timing
 SHIFT_MS = 12      # a section's typical error past this = it sits early/late as a block
 TOP = 5
-LANES = ["Cymbal", "Snare", "Kick"]  # chart rows, top to bottom
 
 
 def tempo_drift(t):
@@ -255,82 +254,3 @@ def problems_report(t, ranges=None):
         lines += ["", "**How to fix it:**"]
         lines += [f"- {f}" for f in r["fixes"]]
     return "\n".join(lines)
-
-
-def problems_plot(t, ranges=None):
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    from matplotlib.colors import LinearSegmentedColormap
-    from matplotlib.ticker import FuncFormatter
-
-    ranges = problem_ranges(t) if ranges is None else ranges
-    fig, (ax, bx, cx) = plt.subplots(3, 1, figsize=(12, 7.5), sharex=True,
-                                     gridspec_kw=dict(height_ratios=[2.2, 1.5, 1]))
-    hits = _counted(t)
-    rates = bar_rates(hits)
-    if not t["bars"] or not rates:
-        ax.text(0.5, 0.5, "No hits could be compared", ha="center", transform=ax.transAxes)
-        return fig
-    drift = tempo_drift(t)
-    first, last = t["bars"][0]["bar"], t["bars"][-1]["bar"]
-    x = np.arange(first, last + 1)
-    cmap = LinearSegmentedColormap.from_list("err", ["#2e9e44", "#e8a317", "#d62728"])
-    cmap.set_bad("white")
-
-    def pct(rs, n):
-        n_hits, off = rs.get(n, (0, 0))
-        return 100 * off / n_hits if n_hits else np.nan
-
-    rate = np.nan_to_num([pct(rates, n) for n in x])
-    ax.bar(x, rate, width=0.85, color=cmap(np.clip(rate / 50, 0, 1)))
-    ax.axhline(100 * MIN_RATE, color="gray", ls="--", lw=0.8)
-    ax.text(last + 0.5, 100 * MIN_RATE, " problem\n level", va="center", fontsize=8, color="gray")
-    ax.set_ylim(0, 105)
-    ax.set_ylabel(f"% of hits\n> {MISTAKE_MS} ms off")
-    ax.set_title(f"Where your timing is worst: share of hits more than {MISTAKE_MS} ms off "
-                 f"{'your own tempo' if drift else 'the original'}, per bar", fontsize=11)
-
-    by_bar = {}
-    for h in hits:
-        by_bar.setdefault(h["bar"], []).append(1000 * h["e"])
-    err = np.array([np.median(by_bar[n]) if n in by_bar else np.nan for n in x])
-    bx.bar(x, np.nan_to_num(err), width=0.85, color=np.where(err > 0, "#c53030", "#2b6cb0"))
-    for y in (-MISTAKE_MS, MISTAKE_MS):
-        bx.axhline(y, color="gray", ls="--", lw=0.8)
-    bx.axhline(0, color="black", lw=0.6)
-    lim = max(40, min(150, np.nanmax(np.abs(err)) * 1.15)) if np.isfinite(err).any() else 40
-    bx.set_ylim(-lim, lim)
-    bx.set_ylabel("typical error (ms)\n+ late / − early")
-    if drift:
-        bx.text(0.005, 0.95, f"against your own tempo ({drift['cover_bpm']:.1f} BPM; it drifts "
-                             f"{drift['start_ms']:+.0f} → {drift['end_ms']:+.0f} ms from the original)",
-                transform=bx.transAxes, va="top", fontsize=8)
-
-    names = [name for name, _, _ in BANDS]
-    grid = np.array([[pct(bar_rates(hits, names.index(lane)), n) for n in x] for lane in LANES])
-    cx.imshow(np.ma.masked_invalid(grid), aspect="auto", cmap=cmap, vmin=0, vmax=50, interpolation="nearest",
-              extent=[first - 0.5, last + 0.5, len(LANES) - 0.5, -0.5])
-    cx.set_yticks(range(len(LANES)), LANES)
-    cx.set_ylabel("which drum")
-    cx.set_xlabel("bar")
-
-    for b in t["bars"]:
-        if b["pattern_differs"]:
-            for axis in (ax, bx):
-                axis.axvspan(b["bar"] - 0.5, b["bar"] + 0.5, color="#8e7cc3", alpha=0.15, lw=0)
-    for i, r in enumerate(ranges, 1):
-        for axis in (ax, bx, cx):
-            axis.axvspan(r["first"] - 0.5, r["last"] + 0.5, fill=False, edgecolor="#d62728", lw=1.6)
-        ax.text((r["first"] + r["last"]) / 2, 101, f"#{i}", ha="center", va="bottom", fontsize=10,
-                fontweight="bold", color="#d62728")
-    ax.set_xlim(first - 0.5, last + 0.5)
-
-    bar_len = 240 / t["bpm"]
-    top = ax.secondary_xaxis("top", functions=(lambda v: (v - 0.5) * bar_len, lambda s: s / bar_len + 0.5))
-    top.xaxis.set_major_formatter(FuncFormatter(lambda s, _: mmss(s)))
-    top.set_xlabel("song time", fontsize=8)
-    fig.text(0.01, 0.005, "Red boxes = worst ranges, numbered as in the report · purple = fill bars, not counted · "
-                          "bottom: share of each drum's hits that are off", fontsize=8, color="gray")
-    fig.tight_layout(rect=(0, 0.02, 1, 1))
-    return fig

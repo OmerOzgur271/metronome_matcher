@@ -6,12 +6,14 @@ from pathlib import Path
 from .align import align
 from .attacks import analyse_attacks, attack_plot, attack_report, attack_table
 from .clips import problem_clips
+from .discard import discard_unplayed
+from .fills import detect_fills, fill_plot, fill_report
 from .audio_io import load, probe_duration
 from .config import MIX_PAD, SEARCH_RADIUS, SNIPPET_MARGIN
 from .export import export_aligned
 from .helpers import block_start
 from .mix import mix
-from .problems import TOP, mmss, problem_ranges, problems_plot
+from .problems import TOP, mmss, problem_ranges
 from .report import overlay, plot, report, timing_report
 from .separate import separate, snippet_span
 from .timing import check_timing
@@ -38,7 +40,7 @@ def _durations_html(lengths):
 def ui():
     import gradio as gr
 
-    def run(cover_file, song_file, bpm, block, buffer, radius, match_sec, cover_gain, pad, with_original):
+    def run(cover_file, song_file, bpm, block, buffer, radius, match_sec, cover_gain, pad, with_original, discard):
         if not cover_file or not song_file:
             raise gr.Error("Load both your drum cover and the original song.")
         steps = []
@@ -53,6 +55,7 @@ def ui():
         r = align(ref, cover, bpm, int(block), buffer, radius, match_sec, log=steps.append)
         t = check_timing(ref, cover, r["start"], bpm)
         attacks = analyse_attacks(ref, cover, t)
+        fills = detect_fills(ref, cover, t)
         head, table = attack_table(attacks)
         ranges = problem_ranges(t)
         steps.append(f"8. Timing check: {sum(h['err'] is not None for h in t['hits'])} hits compared, "
@@ -74,19 +77,24 @@ def ui():
         steps.append(f"9. Cropped both to song {begin:.3f}–{begin + length:.3f} s ({length:.1f} s) as aligned mp3s")
         on_original, on_drumless = _temp_file("cover_on_original_", ".wav"), _temp_file("cover_on_drumless_", ".wav")
         try:
-            mix(song_file, cover_file, r["start"], on_original, cover_gain, pad)
+            bed = song_file
+            if discard:
+                bed, removed = discard_unplayed(song_file, ref_file, attacks, _temp_file("song_without_unplayed_", ".wav"))
+                steps.append(f"10. Took {removed} original drum hits you don't play out of the original song")
+            mix(bed, cover_file, r["start"], on_original, cover_gain, pad)
             mix(drumless_file, cover_file, r["start"], on_drumless, cover_gain, pad)
         except RuntimeError as exc:
             raise gr.Error(str(exc)) from exc
-        steps.append(f"10. Mixed the cover onto the original song and onto the drumless track at {r['start']:.3f} s "
+        steps.append(f"11. Mixed the cover onto the original song and onto the drumless track at {r['start']:.3f} s "
                      f"(level {cover_gain:.2f}), keeping {pad:g} s before and after it")
         preview = overlay(ref, cover, r["start"])
         lengths.update({"preview": len(preview[1]) / preview[0], "on-original": probe_duration(on_original),
                         "on-drumless": probe_duration(on_drumless), "ref-mp3": probe_duration(ref_mp3),
                         "cover-mp3": probe_duration(cover_mp3)})
         return (report(r), "\n".join(steps), plot(r), preview, on_original, on_drumless,
-                ref_mp3, cover_mp3, timing_report(t), problems_plot(t, ranges), *players, _durations_html(lengths),
-                attack_report(attacks, t), attack_plot(attacks, t), gr.Dataframe(value=table, headers=head))
+                ref_mp3, cover_mp3, timing_report(t), *players, _durations_html(lengths),
+                attack_report(attacks, t), attack_plot(attacks, t), gr.Dataframe(value=table, headers=head),
+                fill_report(fills), fill_plot(fills))
 
     with gr.Blocks(title="Drum Cover Aligner") as app:
         gr.Markdown(
@@ -105,6 +113,8 @@ def ui():
         with gr.Row():
             cover_gain = gr.Slider(0, 2, value=1, step=0.05, label="Drum cover level")
             pad = gr.Number(MIX_PAD, label="Seconds of song to keep before and after the cover")
+            discard = gr.Checkbox(True, label="Remove original drum hits you don't play (fills, variations) "
+                                              "from the 'cover + original song' mix")
         with gr.Accordion("Advanced", open=False):
             buffer = gr.Number(1.0, label="Buffer before estimate (s)")
             radius = gr.Number(SEARCH_RADIUS, label="Search radius around estimate (s)")
@@ -121,7 +131,8 @@ def ui():
             ref_mp3 = gr.Audio(label="Separated drums, cropped to the cover (mp3)", type="filepath", elem_id="ref-mp3")
             cover_mp3 = gr.Audio(label="Drum cover, aligned and cropped (mp3)", type="filepath", elem_id="cover-mp3")
         timing = gr.Markdown()
-        problems_fig = gr.Plot(label="Error rate over the song: the numbered boxes are the worst ranges in the report")
+        fills_md = gr.Markdown()
+        fills_fig = gr.Plot(label="Fills: every attack of the original and yours, fills shaded")
         gr.Markdown("### Listen to the problem parts\nYour take with a click at the song's BPM, from a bar before "
                     "each range to a bar after it. The click is on the original's beats: if you hear yourself "
                     "behind it you're late, ahead of it you're early.")
@@ -137,9 +148,9 @@ def ui():
         block.change(_estimate_text, [bpm, block], est)
         go.click(
             run,
-            [cover_file, song_file, bpm, block, buffer, radius, match_sec, cover_gain, pad, with_original],
-            [result, steps, fig, audio, on_original, on_drumless, ref_mp3, cover_mp3, timing, problems_fig, *players,
-             durations, attack_md, attack_fig, attack_df],
+            [cover_file, song_file, bpm, block, buffer, radius, match_sec, cover_gain, pad, with_original, discard],
+            [result, steps, fig, audio, on_original, on_drumless, ref_mp3, cover_mp3, timing, *players,
+             durations, attack_md, attack_fig, attack_df, fills_md, fills_fig],
         )
     ms_time = (Path(__file__).with_name("ms_time.js")).read_text()
     app.launch(inbrowser=True, head=f"<script>{ms_time}</script>")
